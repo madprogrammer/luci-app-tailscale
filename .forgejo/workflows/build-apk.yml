@@ -1,0 +1,38 @@
+name: build-apk
+on:
+  push:
+    branches: [wh3000]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: docker   # node:lts job container + dind sidecar
+    steps:
+      - name: Install docker CLI
+        run: apt-get update -qq && apt-get install -y -qq docker.io >/dev/null && docker version
+      - name: Checkout
+        uses: actions/checkout@v4
+        with: { path: pkgsrc }
+      - name: Build luci-app-tailscale apk in the OpenWrt SDK
+        run: |
+          set -eux
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          docker run --rm -v "$GITHUB_WORKSPACE/pkgsrc":/pkgsrc -v "$GITHUB_WORKSPACE/out":/out \
+            docker.io/openwrt/sdk:mediatek-filogic-25.12.5 bash -c '
+              set -eux; chown -R buildbot /builder /out
+              su buildbot -c "
+                cd /builder
+                cp feeds.conf.default feeds.conf
+                echo src-link tsfeed /pkgsrc >> feeds.conf
+                ./scripts/feeds update -a >/dev/null 2>&1
+                ./scripts/feeds install -p tsfeed luci-app-tailscale
+                echo CONFIG_PACKAGE_luci-app-tailscale=y >> .config
+                make defconfig >/dev/null 2>&1
+                make package/luci-app-tailscale/compile -j\$(nproc)
+                find bin/packages -name 'luci-app-tailscale*.apk' -exec cp -v {} /out/ ';'
+              "
+            '
+          ls -la "$GITHUB_WORKSPACE/out/"
+      - name: Upload apk
+        uses: actions/upload-artifact@v3
+        with: { name: luci-app-tailscale-apk, path: out/*.apk }
