@@ -12,7 +12,9 @@ LUCI_DEPENDS:=
 LUCI_PKGARCH:=all
 
 PKG_VERSION:=1.2.6
-PKG_RELEASE:=1
+# r2: clean postinst-based packaging (r1 was the overlay-hack build baked into the
+# monolithic image); bump so `apk add` upgrades cleanly over the installed r1.
+PKG_RELEASE:=2
 
 # This app ships its own tailscale init script + config (a richer, UI-managed schema
 # than the stock tailscale package's). Both packages would otherwise own
