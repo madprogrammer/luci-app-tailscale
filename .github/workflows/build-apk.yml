@@ -19,7 +19,7 @@ jobs:
             libncurses-dev zlib1g-dev gawk gettext libssl-dev >/dev/null
 
       - name: Checkout package
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: pkgsrc
 
@@ -31,7 +31,7 @@ jobs:
           zstd -dc /tmp/sdk.tar.zst | tar -x -C sdk --strip-components=1
 
       - name: Cache SDK build tree (luci-base & deps)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             sdk/build_dir
@@ -56,7 +56,7 @@ jobs:
           find bin/packages -name "$PKG*.apk" -exec cp -v {} "$GITHUB_WORKSPACE/out/" ";"
 
       - name: Upload apk artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: luci-app-tailscale-apk
           path: out/*.apk
