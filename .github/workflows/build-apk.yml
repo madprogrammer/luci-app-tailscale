@@ -23,7 +23,6 @@ jobs:
         with:
           path: pkgsrc
 
-      # Cache the WHOLE extracted SDK tree (toolchain + build_dir + staging_dir + feeds + dl).
       - name: Cache OpenWrt SDK tree
         id: sdkcache
         uses: actions/cache@v6
@@ -41,16 +40,26 @@ jobs:
           mkdir -p sdk
           zstd -dc /tmp/sdk.tar.zst | tar -x -C sdk --strip-components=1
 
+      - name: Normalize mtimes on the restored tree
+        if: hashFiles('sdk/build_dir/host/.prereq-build') != '' || hashFiles('sdk/staging_dir/host/bin/apk') != ''
+        run: |
+          set -eu
+          # actions/cache does not guarantee mtimes, so a restored dep's .built stamp can read
+          # as older than its (also-restored) sources → OpenWrt needlessly recompiles it (bit
+          # 5gmodem's glib2/libqmi/modemmanager chain). Make every source OLD, then every build
+          # stamp NEWER → make treats cached deps as up-to-date. Our own package still rebuilds:
+          # its source lives in pkgsrc/ (outside sdk/, mtime = checkout time = newest).
+          find sdk -exec touch -d @1000000000 {} + 2>/dev/null || true
+          find sdk/build_dir sdk/staging_dir \
+            \( -name '.built' -o -name '.prepared*' -o -name '.configured*' -o -name '.installed*' \) \
+            -exec touch -d @1100000000 {} + 2>/dev/null || true
+
       - name: Build the apk
         run: |
           set -eux
           cd sdk
           cp feeds.conf.default feeds.conf
           echo "src-link pkg $GITHUB_WORKSPACE/pkgsrc" >> feeds.conf
-          # On a warm (cache-restored) tree the external feeds are already present with
-          # mtimes consistent with the cached .built stamps. Re-pulling them (feeds update -a)
-          # would bump their mtimes above the stamps and force needless rebuilds of heavy deps
-          # (glib2/libqmi/modemmanager for 5gmodem). So only (re)index our local src-link feed.
           if [ -d feeds/luci ] && [ -d feeds/packages ]; then
             ./scripts/feeds update pkg >/dev/null 2>&1
           else
