@@ -4,35 +4,50 @@ on:
     branches: [wh3000]
   workflow_dispatch:
 
+env:
+  SDK_URL: https://downloads.openwrt.org/releases/25.12.5/targets/mediatek/filogic/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+  PKG: luci-app-tailscale
+
 jobs:
   build:
-    runs-on: docker   # node:lts job container + dind sidecar
+    runs-on: docker    # default node:lts container — no DinD, no nested docker
     steps:
-      - name: Install docker CLI
-        run: apt-get update -qq && apt-get install -y -qq docker.io >/dev/null && docker version
-      - name: Checkout
+      - name: Install OpenWrt build prerequisites
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq build-essential file wget unzip zstd git python3 rsync \
+            libncurses-dev zlib1g-dev gawk gettext libssl-dev >/dev/null
+      - name: Checkout package
         uses: actions/checkout@v4
-        with: { path: pkgsrc }
-      - name: Build luci-app-tailscale apk in the OpenWrt SDK
+        with:
+          path: pkgsrc
+      - name: Download + extract the OpenWrt SDK
         run: |
           set -eux
-          mkdir -p "$GITHUB_WORKSPACE/out"
-          docker run --rm -v "$GITHUB_WORKSPACE/pkgsrc":/pkgsrc -v "$GITHUB_WORKSPACE/out":/out \
-            docker.io/openwrt/sdk:mediatek-filogic-25.12.5 bash -c '
-              set -eux; chown -R buildbot /builder /out
-              su buildbot -c "
-                cd /builder
-                cp feeds.conf.default feeds.conf
-                echo src-link tsfeed /pkgsrc >> feeds.conf
-                ./scripts/feeds update -a >/dev/null 2>&1
-                ./scripts/feeds install -p tsfeed luci-app-tailscale
-                echo CONFIG_PACKAGE_luci-app-tailscale=y >> .config
-                make defconfig >/dev/null 2>&1
-                make package/luci-app-tailscale/compile -j\$(nproc)
-                find bin/packages -name 'luci-app-tailscale*.apk' -exec cp -v {} /out/ ';'
-              "
-            '
-          ls -la "$GITHUB_WORKSPACE/out/"
-      - name: Upload apk
+          wget -qO /tmp/sdk.tar.zst "$SDK_URL"
+          mkdir -p sdk
+          zstd -dc /tmp/sdk.tar.zst | tar -x -C sdk --strip-components=1
+      - name: Build the apk (as non-root — OpenWrt refuses root)
+        run: |
+          set -eux
+          useradd -m builder
+          mkdir -p out
+          chown -R builder: sdk pkgsrc out
+          su builder -c '
+            set -eux
+            cd "'"$GITHUB_WORKSPACE"'/sdk"
+            cp feeds.conf.default feeds.conf
+            echo "src-link pkg '"$GITHUB_WORKSPACE"'/pkgsrc" >> feeds.conf
+            ./scripts/feeds update -a >/dev/null 2>&1
+            ./scripts/feeds install -p pkg '"$PKG"'
+            echo "CONFIG_PACKAGE_'"$PKG"'=y" >> .config
+            make defconfig >/dev/null 2>&1
+            make package/'"$PKG"'/compile -j$(nproc)
+            find bin/packages -name "'"$PKG"'*.apk" -exec cp -v {} "'"$GITHUB_WORKSPACE"'/out/" ";"
+          '
+          ls -la out/
+      - name: Upload apk artifact
         uses: actions/upload-artifact@v3
-        with: { name: luci-app-tailscale-apk, path: out/*.apk }
+        with:
+          name: luci-app-tailscale-apk
+          path: out/*.apk
