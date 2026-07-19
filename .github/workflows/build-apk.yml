@@ -1,0 +1,62 @@
+name: build-apk
+on:
+  push:
+    branches: [wh3000]
+  workflow_dispatch:
+
+env:
+  SDK_URL: https://downloads.openwrt.org/releases/25.12.5/targets/mediatek/filogic/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+  PKG: luci-app-tailscale
+
+jobs:
+  build:
+    runs-on: ubuntu-latest   # GitHub-hosted: default user 'runner' is non-root (OpenWrt refuses root)
+    steps:
+      - name: Install OpenWrt build prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential file wget unzip zstd git python3 rsync \
+            libncurses-dev zlib1g-dev gawk gettext libssl-dev >/dev/null
+
+      - name: Checkout package
+        uses: actions/checkout@v4
+        with:
+          path: pkgsrc
+
+      - name: Download + extract the OpenWrt SDK
+        run: |
+          set -eux
+          wget -qO /tmp/sdk.tar.zst "$SDK_URL"
+          mkdir -p sdk
+          zstd -dc /tmp/sdk.tar.zst | tar -x -C sdk --strip-components=1
+
+      - name: Cache SDK build tree (luci-base & deps)
+        uses: actions/cache@v4
+        with:
+          path: |
+            sdk/build_dir
+            sdk/staging_dir
+            sdk/dl
+          key: sdk-25.12.5-filogic-${{ hashFiles('pkgsrc/**/Makefile') }}
+          restore-keys: |
+            sdk-25.12.5-filogic-
+
+      - name: Build the apk
+        run: |
+          set -eux
+          cd sdk
+          cp feeds.conf.default feeds.conf
+          echo "src-link pkg $GITHUB_WORKSPACE/pkgsrc" >> feeds.conf
+          ./scripts/feeds update -a >/dev/null 2>&1
+          ./scripts/feeds install -p pkg "$PKG"
+          echo "CONFIG_PACKAGE_$PKG=y" >> .config
+          make defconfig >/dev/null 2>&1
+          make package/$PKG/compile -j$(nproc)
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          find bin/packages -name "$PKG*.apk" -exec cp -v {} "$GITHUB_WORKSPACE/out/" ";"
+
+      - name: Upload apk artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-tailscale-apk
+          path: out/*.apk
