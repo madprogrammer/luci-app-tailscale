@@ -23,23 +23,26 @@ jobs:
         with:
           path: pkgsrc
 
-      - name: Download + extract the OpenWrt SDK
+      # Cache the WHOLE extracted SDK tree (toolchain + build_dir + staging_dir + feeds
+      # + dl). Caching feeds/ alongside build_dir keeps their mtimes consistent, so make
+      # doesn't treat a freshly-cloned feed as "newer than" luci-base's build stamp and
+      # needlessly recompile it (that bit luci-app-5gmodem: 15 i18n → luci-base host tool).
+      - name: Cache OpenWrt SDK tree
+        id: sdkcache
+        uses: actions/cache@v6
+        with:
+          path: sdk
+          key: sdk-25.12.5-filogic-${{ hashFiles('pkgsrc/**/Makefile') }}
+          restore-keys: |
+            sdk-25.12.5-filogic-
+
+      - name: Download + extract the OpenWrt SDK (only when not restored)
+        if: hashFiles('sdk/rules.mk') == ''
         run: |
           set -eux
           wget -qO /tmp/sdk.tar.zst "$SDK_URL"
           mkdir -p sdk
           zstd -dc /tmp/sdk.tar.zst | tar -x -C sdk --strip-components=1
-
-      - name: Cache SDK build tree (luci-base & deps)
-        uses: actions/cache@v6
-        with:
-          path: |
-            sdk/build_dir
-            sdk/staging_dir
-            sdk/dl
-          key: sdk-25.12.5-filogic-${{ hashFiles('pkgsrc/**/Makefile') }}
-          restore-keys: |
-            sdk-25.12.5-filogic-
 
       - name: Build the apk
         run: |
