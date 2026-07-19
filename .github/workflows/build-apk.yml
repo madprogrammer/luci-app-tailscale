@@ -32,9 +32,9 @@ jobs:
         uses: actions/cache@v6
         with:
           path: sdk
-          key: sdk-25.12.5-filogic-${{ hashFiles('pkgsrc/**/Makefile') }}
+          key: sdk2-25.12.5-filogic-${{ hashFiles('pkgsrc/**/Makefile') }}
           restore-keys: |
-            sdk-25.12.5-filogic-
+            sdk2-25.12.5-filogic-
 
       - name: Download + extract the OpenWrt SDK (only when not restored)
         if: hashFiles('sdk/rules.mk') == ''
