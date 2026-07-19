@@ -23,10 +23,7 @@ jobs:
         with:
           path: pkgsrc
 
-      # Cache the WHOLE extracted SDK tree (toolchain + build_dir + staging_dir + feeds
-      # + dl). Caching feeds/ alongside build_dir keeps their mtimes consistent, so make
-      # doesn't treat a freshly-cloned feed as "newer than" luci-base's build stamp and
-      # needlessly recompile it (that bit luci-app-5gmodem: 15 i18n → luci-base host tool).
+      # Cache the WHOLE extracted SDK tree (toolchain + build_dir + staging_dir + feeds + dl).
       - name: Cache OpenWrt SDK tree
         id: sdkcache
         uses: actions/cache@v6
@@ -50,7 +47,15 @@ jobs:
           cd sdk
           cp feeds.conf.default feeds.conf
           echo "src-link pkg $GITHUB_WORKSPACE/pkgsrc" >> feeds.conf
-          ./scripts/feeds update -a >/dev/null 2>&1
+          # On a warm (cache-restored) tree the external feeds are already present with
+          # mtimes consistent with the cached .built stamps. Re-pulling them (feeds update -a)
+          # would bump their mtimes above the stamps and force needless rebuilds of heavy deps
+          # (glib2/libqmi/modemmanager for 5gmodem). So only (re)index our local src-link feed.
+          if [ -d feeds/luci ] && [ -d feeds/packages ]; then
+            ./scripts/feeds update pkg >/dev/null 2>&1
+          else
+            ./scripts/feeds update -a >/dev/null 2>&1
+          fi
           ./scripts/feeds install -p pkg "$PKG"
           echo "CONFIG_PACKAGE_$PKG=y" >> .config
           make defconfig >/dev/null 2>&1
